@@ -1,0 +1,9 @@
+:root {
+    --primary-color: #8624E4;
+    --button-color: #5200A0;
+
+    --button-color-hover: black;
+
+
+    --box-shadow-default: 0px 7px 29px 0px rgba(100, 100, 111, 0.2);
+}
