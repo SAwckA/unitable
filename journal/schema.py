@@ -6,6 +6,7 @@ from pydantic.fields import Field as PField
 from sqlalchemy.orm import relationship
 
 from typing import Optional, List
+from users.schema import User, UserRead
 
 
 class JournalBase(SQLModel):
@@ -16,8 +17,17 @@ class Journal(JournalBase, table=True):
     __tablename__ = 'journal'
     id: Optional[int] = Field(default=None, primary_key=True)
 
+    owner_id: Optional[int] = Field(default=None, foreign_key='user.id')
+    owner: Optional[User] = Relationship(back_populates='journals', sa_relationship_kwargs={'lazy': 'selectin', 'cascade': 'delete'})
     students: List["Student"] = Relationship(back_populates='journal',
                                              sa_relationship_kwargs={'lazy': 'selectin', 'cascade': 'delete'})
+
+
+class JournalAccessList(SQLModel, table=True):
+    __tablename__ = 'journal_access_list'
+    journal_id: Optional[int] = Field(default=None, primary_key=True, foreign_key='journal.id')
+    user_id: Optional[int] = Field(default=None, primary_key=True, foreign_key='user.id')
+    role: Optional[str] = Field(default='ADMIN')
 
 
 class JournalCreate(JournalBase):
@@ -26,6 +36,7 @@ class JournalCreate(JournalBase):
 
 class JournalRead(JournalBase):
     id: int
+    owner: Optional[UserRead]
 
 
 class JournalUpdate(JournalBase):
@@ -59,6 +70,7 @@ class StudentUpdate(StudentBase):
 
 class JournalReadWithStudent(JournalRead):
     students: List[StudentRead] = []
+    owner: UserRead
 
 
 class StudentReadWithJournal(JournalRead):
