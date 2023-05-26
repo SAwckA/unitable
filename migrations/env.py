@@ -9,7 +9,8 @@ from sqlmodel import SQLModel
 from alembic import context
 
 from config.settings import Settings
-from journal.schema import Journal, Student, JournalTable
+from journal.schema import *
+from users.schema import *
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -8,6 +8,11 @@ from database.psql import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from utils.exceptions import HTTPError
+from users.schema import User
+from service.auth import UserAuth
+
+from database.cache import redis_pool
+from journal.usecase import JournalAccessPolicies
 
 router = APIRouter()
 
@@ -68,10 +73,19 @@ class JournalRouter:
             }
         }
     )
-    async def get_all_journals(self, offset: int = 0, limit: int = 10):
-        if limit > 100 or limit < 1 or offset < 0:
+    async def get_all_journals(self, group_name: str = '', owner_id: int = 0, offset: int = 0, limit: int = 10):
+        if limit > 100 or limit < 1 or offset < 0 and owner_id < 0:
             raise HTTPException(status_code=400, detail='Invalid Query params')
-        res = await self.session.execute(select(Journal).offset(offset).limit(limit))
+        if owner_id == 0:
+            res = await self.session.execute(select(Journal)
+                                             .offset(offset)
+                                             .limit(limit)
+                                             .where(Journal.groupName.like('%'+group_name+'%')))
+        else:
+            res = await self.session.execute(select(Journal)
+                                             .offset(offset)
+                                             .limit(limit)
+                                             .where(Journal.owner_id == owner_id))
         return [x[0] for x in res.all()]
 
     @router.patch(
@@ -90,12 +104,14 @@ class JournalRouter:
             }
         }
     )
-    async def update_journal(self, journal_id: int, new_journal: JournalUpdate):
+    async def update_journal(self, journal_id: int, new_journal: JournalUpdate, user=Depends(UserAuth(redis_pool()))):
         if journal_id < 1:
             raise HTTPException(status_code=400, detail='Invalid id')
         db_journal = await self.session.get(Journal, journal_id)
         if db_journal is None:
             raise HTTPException(status_code=404, detail='Journal not found')
+        if not JournalAccessPolicies.owner_only(user, db_journal):
+            raise HTTPException(status_code=403, detail='Only owner access')
 
         journal_data = new_journal.dict(exclude_unset=True)
         for k, v in journal_data.items():
@@ -122,12 +138,14 @@ class JournalRouter:
             }
         }
     )
-    async def delete_journal(self, journal_id: int):
+    async def delete_journal(self, journal_id: int, user: User = Depends(UserAuth(redis_pool()))):
         if journal_id < 1:
             raise HTTPException(status_code=400, detail='Invalid id')
         db_journal = await self.session.get(Journal, journal_id)
         if db_journal is None:
             raise HTTPException(status_code=404, detail='Journal not found')
+        if not JournalAccessPolicies.owner_only(user, db_journal):
+            raise HTTPException(status_code=403, detail='Only owner access')
         await self.session.delete(db_journal)
         await self.session.commit()
 
@@ -139,8 +157,9 @@ class JournalRouter:
         response_model=Journal,
         summary="Создание журнала"
     )
-    async def create_journal(self, journal: JournalCreate) -> Journal:
+    async def create_journal(self, journal: JournalCreate, user=Depends(UserAuth(redis_pool()))) -> Journal:
         db_journal = Journal.from_orm(journal)
+        db_journal.owner_id = user.id
         self.session.add(db_journal)
         await self.session.commit()
         await self.session.refresh(db_journal)
@@ -190,13 +209,18 @@ class JournalRouter:
             }
         }
     )
-    async def add_student(self, journal_id: int, students: List[StudentCreate], ):
+    async def add_student(self, journal_id: int, students: List[StudentCreate],
+                          user: User = Depends(UserAuth(redis_pool()))):
         if journal_id < 1:
             raise HTTPException(status_code=400, detail='Invalid ID param')
 
         journal = await self.session.get(Journal, journal_id)
         if journal is None:
             raise HTTPException(status_code=404, detail='Journal Not found')
+
+        if not JournalAccessPolicies.owner_only(user, journal):
+            raise HTTPException(status_code=403, detail='Only owner access')
+
 
         """
         TODO:
@@ -227,11 +251,16 @@ class JournalRouter:
             }
         }
     )
-    async def update_student(self, journal_id: int, student_id: int, new_student: StudentUpdate):
+    async def update_student(self, journal_id: int, student_id: int, new_student: StudentUpdate,
+                             user: User = Depends(UserAuth(redis_pool()))):
         if journal_id < 1 or student_id < 1:
             raise HTTPException(status_code=400, detail='Invalid ID param')
 
         db_student = await self.get_student(journal_id, student_id)
+        db_journal = await self.session.get(Journal, journal_id)
+
+        if not JournalAccessPolicies.owner_only(user, db_journal):
+            raise HTTPException(status_code=403, detail='Only owner access')
 
         student_data = new_student.dict(exclude_unset=True)
         for k, v in student_data.items():
@@ -258,11 +287,14 @@ class JournalRouter:
             }
         }
     )
-    async def delete_student(self, journal_id: int, student_id: int):
+    async def delete_student(self, journal_id: int, student_id: int, user: User = Depends(UserAuth(redis_pool()))):
         if journal_id < 1 or student_id < 1:
             raise HTTPException(status_code=400, detail='Invalid ID param')
 
         db_st = await self.get_student(journal_id, student_id)
+        db_journal = await self.session.get(Journal, journal_id)
+        if not JournalAccessPolicies.owner_only(user, db_journal):
+            raise HTTPException(status_code=403, detail='Only owner access')
 
         await self.session.delete(db_st)
         await self.session.commit()
@@ -312,7 +344,8 @@ class JournalRouter:
             }
         }
     )
-    async def create_update_journal(self, journal_id: int, cells: List[JournalTableCreateUpdate]):
+    async def create_update_journal(self, journal_id: int, cells: List[JournalTableCreateUpdate],
+                                    user: User = Depends(UserAuth(redis_pool()))):
         if journal_id < 1:
             raise HTTPException(status_code=400, detail='Invalid ID')
 
@@ -323,6 +356,9 @@ class JournalRouter:
         journal = await self.session.get(Journal, journal_id)
         if journal is None:
             raise HTTPException(status_code=404, detail='Journal not found')
+
+        if not JournalAccessPolicies.owner_only(user, journal):
+            raise HTTPException(status_code=403, detail='Only owner access')
 
         for c in cells:
             if c.student_id not in [x.id for x in journal.students]:

@@ -10,3 +10,10 @@ services:
       - POSTGRES_USER=debug
       - POSTGRES_NAME=debug
 
+  cache:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --save 20 1 --loglevel warning --requirepass changeme
+
+

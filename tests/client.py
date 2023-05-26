@@ -5,7 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from fastapi.testclient import TestClient
 
 from database.psql import get_db
-from main import app
+from app.main import app
 
 
 class GetDBOverride:
